@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Only the Google accounts listed below can read or change inventory.
+// Add each employee's Gmail address to the list, then click Publish in the Firebase console.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          "owner@gmail.com",
+          "employee@gmail.com"
+        ];
+    }
+    match /{collection}/{docId} {
+      allow read, write: if allowed()
+        && collection in ["items", "bins", "stock", "log"];
+    }
+  }
+}

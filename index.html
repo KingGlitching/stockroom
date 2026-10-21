@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stockroom</title>
+<meta name="theme-color" content="#1d2320">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stockroom">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: phone-first scan-gun tool; sticky graphite header with 5 workflow tabs; yellow floor-sign plates mark every bin location */
+:root{
+  --bg:#eef0ec; --panel:#ffffff; --ink:#1d2320; --muted:#5f6a64; --line:#d3d8d2;
+  --sign:#f2c418; --sign-ink:#1d2320; --accent:#1f6f5c; --accent-ink:#ffffff;
+  --danger:#b23a2e; --ok:#2f7d3a; --soft:#e3e7e1;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#151917; --panel:#1e2421; --ink:#e7ebe8; --muted:#9aa59f; --line:#323a36;
+  --sign:#e8bb14; --sign-ink:#151917; --accent:#58b79b; --accent-ink:#0f1a16;
+  --danger:#e3735f; --ok:#6cc47a; --soft:#262d29; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#151917; --panel:#1e2421; --ink:#e7ebe8; --muted:#9aa59f; --line:#323a36;
+  --sign:#e8bb14; --sign-ink:#151917; --accent:#58b79b; --accent-ink:#0f1a16;
+  --danger:#e3735f; --ok:#6cc47a; --soft:#262d29; color-scheme:dark}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--ink)}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--ink);color:var(--bg)}
+header .wrap{padding-block:12px 0;display:flex;flex-direction:column;gap:8px}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.brand h1{margin:0;font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:.02em;text-transform:uppercase;line-height:1}
+.brand h1 span{background:var(--sign);color:var(--sign-ink);padding:0 6px}
+.brand small{font-family:var(--f-mono);font-size:12px;opacity:.7}
+nav{display:flex;gap:2px}
+nav button{flex:1;min-width:0;font:600 15px var(--f-display);letter-spacing:.06em;text-transform:uppercase;background:transparent;color:inherit;border:0;border-bottom:4px solid transparent;padding:8px 2px 9px;cursor:pointer;opacity:.7}
+nav button[aria-selected="true"]{opacity:1;border-bottom-color:var(--sign)}
+:focus-visible{outline:3px solid var(--sign);outline-offset:2px}
+main .wrap{padding-block:18px 56px;display:flex;flex-direction:column;gap:16px}
+.view{display:flex;flex-direction:column;gap:14px}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1.5px solid var(--line);border-radius:6px;padding:11px 12px;width:100%;min-width:0}
+textarea{min-height:64px;resize:vertical}
+.btn{font:600 15px var(--f-body);border-radius:6px;padding:11px 16px;border:1.5px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;justify-content:center}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.sign{background:var(--sign);border-color:var(--sign);color:var(--sign-ink)}
+.btn.ghost{border-color:var(--line)}
+.btn.danger{border-color:var(--danger);color:var(--danger);background:transparent}
+.btn.sm{padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.hint{color:var(--muted);font-size:13px;margin:0}
+h2{margin:0;font-family:var(--f-display);font-size:30px;font-weight:700;line-height:1.05;text-wrap:balance}
+h3{margin:0;font-family:var(--f-display);font-size:20px;text-transform:uppercase;letter-spacing:.04em}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.row-flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spread{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+/* scan field — the scan gun */
+.scan{display:flex;gap:8px}
+.scan input{flex:1;font-family:var(--f-mono);font-size:16px;padding:13px 12px;border-width:2px;border-color:var(--ink)}
+.scan .cam{flex:none}
+.prompt{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.1em;font-weight:700;font-size:14px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.prompt .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:13px;letter-spacing:0}
+.prompt.done .n{background:var(--ok)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:500 13px var(--f-body);border:1.5px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:4px 12px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.list{display:flex;flex-direction:column;gap:8px;list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;text-align:left;width:100%;color:var(--ink);font:inherit}
+button.row{cursor:pointer}
+button.row:hover{border-color:var(--muted)}
+.row .meta{min-width:0}
+.name{font-weight:600;overflow-wrap:anywhere}
+.sub{font-family:var(--f-mono);font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.qty{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px;text-align:right;color:var(--muted)}
+.qty b{display:block;font-size:17px;color:var(--ink)}
+.qty.low b{color:var(--danger)}
+.plate{display:inline-grid;grid-auto-flow:column;background:var(--sign);color:var(--sign-ink);border-radius:4px;overflow:hidden;font-family:var(--f-display);text-transform:uppercase;line-height:1;justify-self:start}
+.plate div{padding:5px 7px 6px;text-align:center;border-left:2px solid var(--sign-ink)}
+.plate div:first-child{border-left:0}
+.plate small{display:block;font-size:10px;letter-spacing:.12em;font-weight:600;opacity:.75}
+.plate strong{font-size:20px;font-weight:800}
+.plate.xl div{padding:10px 16px 12px}
+.plate.xl strong{font-size:48px}
+.plate.xl small{font-size:12px}
+.plate.none{background:var(--soft);color:var(--muted)}
+.empty{background:var(--panel);border:1.5px dashed var(--line);border-radius:8px;padding:20px;text-align:center;color:var(--muted)}
+.badge{display:inline-block;font:600 11px var(--f-body);letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:3px;background:var(--soft);color:var(--muted)}
+.badge.low{background:var(--danger);color:var(--panel)}
+dl.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:0}
+dl.facts div{border-top:1px solid var(--line);padding-top:8px}
+dt{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+dd{margin:2px 0 0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.codes{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center;background:#fff;border-radius:6px;padding:12px}
+.codes canvas{max-width:100%;height:auto}
+.form{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.form label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);grid-column:span 6;min-width:0}
+.form .s3{grid-column:span 3}.form .s2{grid-column:span 2}
+@media (max-width:520px){.form .s3{grid-column:span 6}}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{flex:1;font:600 14px var(--f-body);padding:10px;background:var(--panel);color:var(--ink);border:0;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper input{width:76px;text-align:center;font-family:var(--f-mono);font-size:18px;padding:8px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);color:var(--bg);background:var(--ink);padding:10px 16px;border-radius:6px;font-weight:500;z-index:20;max-width:calc(100% - 32px)}
+.toast.bad{background:var(--danger);color:#fff}
+.toast.good{background:var(--ok);color:#fff}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--soft);padding:10px;border-radius:6px}
+.task{border:2px solid var(--ink)}
+.progress{height:6px;background:var(--soft);border-radius:3px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent)}
+.route{display:flex;flex-direction:column;gap:4px;list-style:none;margin:0;padding:0;font-family:var(--f-mono);font-size:13px}
+.route li{display:flex;gap:10px;padding:6px 8px;border-radius:4px}
+.route li.cur{background:var(--sign);color:var(--sign-ink)}
+.route li.done{color:var(--muted);text-decoration:line-through}
+.route li.short{color:var(--danger)}
+.log{font-size:13px}
+.log .row{grid-template-columns:auto 1fr auto;padding:8px 10px}
+.verb{font:700 11px var(--f-body);letter-spacing:.1em;text-transform:uppercase;padding:3px 6px;border-radius:3px;background:var(--soft)}
+.verb.stow{background:var(--accent);color:var(--accent-ink)}
+.verb.pick{background:var(--sign);color:var(--sign-ink)}
+.labels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.mini{background:#fff;border-radius:6px;padding:8px;border:1px solid var(--line);display:flex;justify-content:center}
+.mini canvas{max-width:100%;height:auto}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.how div{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px}
+.how b{display:block;font-family:var(--f-display);text-transform:uppercase;letter-spacing:.05em;font-size:15px;margin-bottom:2px}
+/* live scanner */
+.scanner{position:fixed;inset:0;z-index:30;background:#000;display:flex;flex-direction:column}
+.scanner video{flex:1;min-height:0;width:100%;object-fit:cover;background:#000}
+.scanner .reticle{position:absolute;left:8%;right:8%;top:30%;height:26%;border:3px solid #f2c418;border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:none}
+.scanner .reticle::after{content:"";position:absolute;left:4%;right:4%;top:50%;height:2px;background:#e3735f;animation:sweep 1.6s ease-in-out infinite alternate}
+@keyframes sweep{from{transform:translateY(-40px)}to{transform:translateY(40px)}}
+.scanner .bar{position:absolute;left:0;right:0;display:flex;gap:8px;justify-content:space-between;align-items:center;padding:12px max(16px,env(safe-area-inset-left,0px));color:#fff}
+.scanner .top{top:0;padding-top:calc(12px + env(safe-area-inset-top,0px));background:linear-gradient(rgba(0,0,0,.7),transparent)}
+.scanner .bottom{bottom:0;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.75));flex-wrap:wrap}
+.scanner .msg{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.08em;font-size:18px}
+.scanner .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.5);color:#fff}
+.scanner .btn.on{background:#f2c418;color:#1d2320;border-color:#f2c418}
+.scanner.hit .reticle{border-color:#6cc47a}
+.gate{max-width:420px;margin:12vh auto 0;text-align:center}
+#printArea{display:none}
+@media print{
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block}
+  #printArea .sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:0.12in}
+  #printArea img{width:100%;break-inside:avoid;display:block}
+  @page{margin:0.4in}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand"><h1><span>Stock</span>room</h1><small id="count">Loading inventory…</small></div>
+    <nav role="tablist">
+      <button role="tab" data-view="find" id="t-find" aria-selected="true">Find</button>
+      <button role="tab" data-view="stow" id="t-stow" aria-selected="false">Stow</button>
+      <button role="tab" data-view="pick" id="t-pick" aria-selected="false">Pick</button>
+      <button role="tab" data-view="bins" id="t-bins" aria-selected="false">Bins</button>
+      <button role="tab" data-view="labels" id="t-labels" aria-selected="false">Labels</button>
+    </nav>
+  </div>
+</header>
+
+<main><div class="wrap">
+  <section id="v-find" class="view"></section>
+  <section id="v-stow" class="view" hidden></section>
+  <section id="v-pick" class="view" hidden></section>
+  <section id="v-bins" class="view" hidden></section>
+  <section id="v-labels" class="view" hidden></section>
+  <section id="v-item" class="view" hidden></section>
+  <section id="v-bin" class="view" hidden></section>
+  <section id="v-edit" class="view" hidden></section>
+</div></main>
+
+<input type="file" id="photo" accept="image/*" capture="environment" hidden>
+<div class="toast" id="toast" hidden></div>
+
+<div class="scanner" id="scanner" hidden role="dialog" aria-label="Barcode scanner">
+  <video id="scanVideo" playsinline muted autoplay></video>
+  <div class="reticle"></div>
+  <div class="bar top"><span class="msg" id="scanMsg">Point at a barcode or QR</span><button class="btn" id="scanClose">Close</button></div>
+  <div class="bar bottom">
+    <button class="btn" id="scanTorch" hidden>Flashlight</button>
+    <button class="btn" id="scanFlip">Switch camera</button>
+    <button class="btn" id="scanPhoto">Use a photo</button>
+  </div>
+</div>
+
+<div id="printArea"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
+
