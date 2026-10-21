@@ -1,22 +1,22 @@
 // ─────────────────────────────────────────────────────────────
-//  Shared inventory (optional)
+//  Kairos Purpose — account & shared inventory settings
 //
-//  Leave this as null and the app saves inventory on each phone
-//  separately. That's fine for trying it out.
+//  While this is null, the app works on each device by itself
+//  (no logins, inventory saved only on that phone or computer).
 //
-//  To share one inventory across every phone and computer, paste
-//  the Firebase config object from your Firebase project here.
-//  See README.md → "Step 3: Share inventory between phones".
+//  Paste your Firebase web config here to turn on username
+//  logins and one shared, live inventory for every device.
+//  See README.md → "Turn on accounts".
 // ─────────────────────────────────────────────────────────────
 
-window.STOCKROOM_FIREBASE = null;
+window.KAIROS_FIREBASE = null;
 
 /* Example — replace with your own values:
-window.STOCKROOM_FIREBASE = {
+window.KAIROS_FIREBASE = {
   apiKey: "AIza...",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
+  authDomain: "kairos-purpose.firebaseapp.com",
+  projectId: "kairos-purpose",
+  storageBucket: "kairos-purpose.appspot.com",
   messagingSenderId: "1234567890",
   appId: "1:1234567890:web:abc123"
 };

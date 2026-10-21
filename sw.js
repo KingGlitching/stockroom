@@ -1,6 +1,7 @@
 // Keeps the app working with a weak or no signal in the back of the warehouse.
-// Bump VERSION whenever you change index.html, app.js or styles so phones pick up the update.
-const VERSION = "stockroom-v1";
+// The app always asks GitHub for the newest files first and only uses this cache when offline,
+// so new features show up without changing anything here. Updates are announced through version.json.
+const VERSION = "kairos-cache-v2";
 const CORE = [
   "./",
   "./index.html",
@@ -32,8 +33,10 @@ self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET") return;
   if (/googleapis\.com|firebaseio|firestore|identitytoolkit|securetoken/.test(url.host)) return;
+  if (url.pathname.endsWith("/version.json")) return; // always straight from the network
+  const own = url.origin === location.origin;
   e.respondWith(
-    fetch(e.request)
+    (own ? fetch(url.href, { cache: "no-cache", credentials: "same-origin" }) : fetch(e.request))
       .then(res => {
         if (res.ok && (url.origin === location.origin || url.host === "cdn.jsdelivr.net" || url.host.endsWith("gstatic.com"))) {
           const copy = res.clone();

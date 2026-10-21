@@ -1,6 +1,6 @@
 {
-  "name": "Stockroom",
-  "short_name": "Stockroom",
+  "name": "Kairos Purpose",
+  "short_name": "Kairos",
   "description": "Scan, stow, pick and find inventory by aisle, rack and shelf.",
   "start_url": "./",
   "scope": "./",

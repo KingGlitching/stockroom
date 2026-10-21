@@ -1,91 +1,78 @@
-# Stockroom
+# Kairos Purpose
 
-A phone-first inventory app that works like an Amazon warehouse, scaled down for a small business.
+A phone-first inventory app that runs like an Amazon warehouse, scaled down for a small business.
 
 - **Bins:** every shelf spot gets an address like `A01-R02-S3` (aisle, rack, shelf) and a QR label.
 - **Stow:** scan the item, scan the bin, enter how many. Stock can go anywhere with room, and the app remembers where.
 - **Pick:** add what an order needs. The app splits it across bins and sorts the stops into one walk through the aisles. Scanning the bin and the item at each stop catches wrong picks.
 - **Find:** search or scan anything to see which aisle, rack and shelf it's on.
 - **Labels:** print QR labels for bins and barcode labels for items, three across on sticker paper.
-- **Live camera scanning** for product barcodes (UPC, EAN, Code 128 and more) and QR codes. Bluetooth and USB handheld scanners work too.
-- **Installs to the home screen** and keeps working with a weak signal.
+- **Live camera scanning** for product barcodes (UPC, EAN, Code 128 and more) and QR codes. USB and Bluetooth scanners work too.
+- **Accounts:** everyone signs in with a username like `maria@kairospurpose`. The owner adds and removes people, and activity shows who did what.
+- **One live inventory** on every phone and computer.
+- **Updates itself:** new features reach every device within a few minutes.
+- **Installs** to the home screen or desktop and keeps working with a weak signal.
 
-It's plain HTML and JavaScript. No build step and no server to run.
+Live at **https://kingglitching.github.io/stockroom/**
 
 ---
 
-## Step 1: Put it on GitHub Pages (about 5 minutes, free)
+## Turn on accounts (one time, about 10 minutes)
 
-The camera only works on a secure (`https://`) website. GitHub Pages gives you one for free.
+Until this is done, the app works on each device by itself, with no logins. Accounts and the shared inventory run on Google Firebase, which is free at this size.
 
-1. Make a free account at [github.com](https://github.com) if you don't have one.
-2. Click **+** (top right) → **New repository**. Name it `stockroom`, set it to **Public**, and click **Create repository**.
-3. On the new repo page, click **uploading an existing file**. Drag in **everything inside this folder**, including the `icons` folder. Click **Commit changes**.
-4. Go to **Settings → Pages**. Under **Branch**, choose `main` and `/ (root)`, then click **Save**.
-5. Wait a minute or two, then refresh. The page shows your app's address, something like `https://yourname.github.io/stockroom/`.
+1. Go to **[console.firebase.google.com](https://console.firebase.google.com)**, sign in with the business's Google account, and click **Create a project**. Name it `kairos-purpose`. Google Analytics can be off.
+2. **Build → Authentication → Get started → Sign-in method → Email/Password → Enable → Save.**
+   (People never type an email. The app turns `maria` into a login behind the scenes.)
+3. **Build → Firestore Database → Create database.** Pick the closest location and choose **production mode**.
+4. Still in Firestore, open the **Rules** tab. Delete what's there, paste in everything from [`firestore.rules`](firestore.rules), and click **Publish**. Nothing in it needs editing.
+5. Click the **gear icon → Project settings**. Under **Your apps**, click the **`</>`** web icon, name it `kairos-purpose`, and click **Register app**. Copy the `firebaseConfig` block it shows.
+6. Put those values into [`config.js`](config.js) in this repo (click the file, then the pencil icon, and replace `null` with them), then commit. Or send them to whoever maintains the app.
+7. Open the app. Tap **Create owner account** and pick the owner's username and password. **Do this right away:** the first account created becomes the owner.
 
-> GitHub Pages sites on a free account are public. Anyone with the link can open the app, but in Step 3 the **inventory data** is locked to the Google accounts you approve. Until you do Step 3, each phone only sees its own data.
+### Adding people
 
-## Step 2: Install it on the phone
+The owner taps their name (top right) to open **Team**. Enter a username and a starting password, then choose **Add person**. Give the employee their username and password. They can change the password under their own name.
 
-Open the address on the phone, then:
+- **Remove** cuts off access right away. **Reactivate** brings it back.
+- Forgotten passwords: the owner can't see or reset them. Add the person again with a new username, like `maria2`.
+- The Firebase `apiKey` in `config.js` is meant to be public. The security rules are what protect the data: only active team members can read or change inventory.
 
-- **iPhone (Safari):** tap Share → **Add to Home Screen**.
-- **Android (Chrome):** tap ⋮ → **Install app** (or **Add to Home screen**).
+---
 
-The first time you tap **Scan**, allow camera access.
+## Install it
 
-## Step 3: Share inventory between phones (recommended)
+- **iPhone (Safari):** Share → **Add to Home Screen**.
+- **Android (Chrome):** ⋮ → **Install app**.
+- **PC or Mac (Chrome or Edge):** click the install icon at the right end of the address bar.
+  - Chrome: ⋮ → **Cast, save, and share → Install page as app**.
+  - Edge: ⋯ → **Apps → Install this site as an app**.
 
-Without this, inventory is saved on each phone separately. With it, every phone and computer sees the same stock, live. Firebase's free plan is plenty for a small business.
-
-1. Go to [console.firebase.google.com](https://console.firebase.google.com) and click **Create a project**. Name it `stockroom`. You can turn off Google Analytics.
-2. **Build → Firestore Database → Create database.** Pick the location closest to you and start in **production mode**.
-3. **Build → Authentication → Get started → Google → Enable → Save.**
-4. **Authentication → Settings → Authorized domains → Add domain** and enter `yourname.github.io`.
-5. **Project settings** (gear icon) → **Your apps** → click the **`</>`** web icon. Name it `stockroom` and click **Register app**. Copy the `firebaseConfig = { ... }` values.
-6. Open `config.js` in your GitHub repo (click the file, then the pencil icon). Replace `window.STOCKROOM_FIREBASE = null;` with your values:
-
-   ```js
-   window.STOCKROOM_FIREBASE = {
-     apiKey: "AIza...",
-     authDomain: "stockroom-xxxx.firebaseapp.com",
-     projectId: "stockroom-xxxx",
-     storageBucket: "stockroom-xxxx.appspot.com",
-     messagingSenderId: "...",
-     appId: "..."
-   };
-   ```
-
-   Commit the change. The `apiKey` is safe to publish; the security rules in the next step are what protect the data.
-7. **Firestore Database → Rules.** Paste in the contents of `firestore.rules`, put in the real Gmail addresses of everyone allowed in, and click **Publish**.
-
-Open the app again. It asks everyone to sign in with Google, and only the listed accounts can see or change inventory. To add an employee later, add their address in the Rules tab and publish again.
+At a desk, a USB barcode scanner is the easiest way to scan. Plug it in, click a scan box, and scan.
 
 ## Using it
 
-1. **Bins tab:** create your bins, for example aisle `A01`, racks 1 to 4, 4 shelves each. That makes 16 bins.
+1. **Bins tab:** create your bins, for example aisle `A01`, racks 1 to 4, 4 shelves each.
 2. **Labels tab → Bin labels → Print.** Stick a label on each shelf spot.
-3. **Stow tab:** tap **Scan**, scan a product, then scan a bin label, enter the count, and tap **Stow**. Unknown barcodes open a short form to add the product. For things you make yourself, tap **Item has no barcode? Create one**, then print an item label for it.
-4. **Find tab:** scan or search anything to see where it is.
-5. **Pick tab:** build the order, tap **Start picking**, and follow the route.
+3. **Stow:** scan a product, scan a bin, enter the count, tap **Stow**. Unknown barcodes open a short form. For things you make yourself, use **Item has no barcode? Create one** and print an item label.
+4. **Find:** scan or search anything to see where it is.
+5. **Pick:** build the order, tap **Start picking**, and follow the route.
 
-**Three ways to scan:**
-- The **Scan** button opens the live camera in the app.
-- The phone's **regular camera app** opens bin and item QR labels straight to that page.
-- A **Bluetooth or USB handheld scanner** types into any scan box. Pair it as a keyboard; most scanners work this way out of the box.
+## Shipping new features
 
-## Updating the app
+1. Change the files and commit to `main`.
+2. In the same commit, change the `version` in [`version.json`](version.json) to anything new (today's date works, like `2026.11.02-1`).
 
-Edit files in GitHub and commit. If phones keep showing the old version, open `sw.js`, change `stockroom-v1` to `stockroom-v2` (and so on), and commit. Phones update the next time the app opens.
+GitHub Pages publishes in about a minute. Every open copy of the app checks `version.json` every few minutes. It updates the next time it's reopened or idle, or right away if someone taps **Update now**. It never reloads in the middle of a pick, a scan or a half-filled form. Inventory data is always live and doesn't need an update.
 
 ## Files
 
 | File | What it is |
 |---|---|
 | `index.html` | Page layout and styles |
-| `app.js` | All app logic: scanning, stow, pick, bins, labels |
-| `config.js` | Firebase settings (optional) |
-| `firestore.rules` | Who can access shared inventory |
+| `app.js` | App logic: scanning, stow, pick, bins, labels, accounts, updates |
+| `config.js` | Firebase settings (turns on accounts) |
+| `firestore.rules` | Who can access inventory |
+| `version.json` | Change this to push an update to every device |
 | `sw.js` | Offline support |
-| `manifest.webmanifest`, `icons/` | Home screen install |
+| `manifest.webmanifest`, `icons/` | Home screen and desktop install |

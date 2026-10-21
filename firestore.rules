@@ -1,19 +1,43 @@
 rules_version = '2';
 
-// Only the Google accounts listed below can read or change inventory.
-// Add each employee's Gmail address to the list, then click Publish in the Firebase console.
+// Kairos Purpose security rules. Paste this whole file into
+// Firebase console → Firestore Database → Rules, then click Publish.
+// Nothing here needs editing: the first account created in the app
+// becomes the owner, and the owner decides who else gets in.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function allowed() {
-      return request.auth != null
-        && request.auth.token.email_verified == true
-        && request.auth.token.email in [
-          "owner@gmail.com",
-          "employee@gmail.com"
-        ];
+
+    function signedIn() { return request.auth != null; }
+    function ownerDoc() { return /databases/$(database)/documents/meta/owner; }
+    function memberDoc() { return /databases/$(database)/documents/members/$(request.auth.uid); }
+
+    function isOwner() {
+      return signedIn() && exists(ownerDoc()) && get(ownerDoc()).data.uid == request.auth.uid;
     }
+    function isMember() {
+      return signedIn() && (isOwner() ||
+        (exists(memberDoc()) && get(memberDoc()).data.active == true));
+    }
+
+    // Who the owner is. Anyone may check whether setup is done; it can be
+    // claimed exactly once, by the account claiming it, and never changed.
+    match /meta/owner {
+      allow read: if true;
+      allow create: if signedIn() && !exists(ownerDoc())
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // The team list. Members can see it; only the owner adds or removes people.
+    // The owner's own entry can be written right after claiming ownership.
+    match /members/{uid} {
+      allow read: if isMember();
+      allow write: if isOwner();
+    }
+
+    // Inventory: anyone active on the team.
     match /{collection}/{docId} {
-      allow read, write: if allowed()
+      allow read, write: if isMember()
         && collection in ["items", "bins", "stock", "log"];
     }
   }

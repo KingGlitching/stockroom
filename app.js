@@ -50,7 +50,7 @@ async function del(coll,id){
   else{delete S[coll][id];localSave();renderAll();}
 }
 async function addLog(e){
-  e.at=Date.now();
+  e.at=Date.now();if(ME)e.by=ME.username;
   if(db){try{await db.collection("log").add(e)}catch(x){}}
   else{S.log.unshift(e);S.log=S.log.slice(0,60);localSave();}
 }
@@ -63,40 +63,179 @@ const qtyAt=(itemId,bId)=>(S.stock[itemId+"__"+bId]||{}).qty||0;
 
 const fromLocal=localLoad()||{...SAMPLE,log:[]};Object.assign(S,JSON.parse(JSON.stringify(fromLocal)));
 function loadScript(src){return new Promise((ok,no)=>{const t=document.createElement("script");t.src=src;t.onload=ok;t.onerror=no;document.head.appendChild(t)})}
-function signInGate(auth){
-  return new Promise(res=>{
-    auth.onAuthStateChanged(u=>{
-      if(u){document.querySelectorAll(".gate").forEach(g=>g.remove());$("main").hidden=false;$("header").hidden=false;res(u);return}
-      $("main").hidden=true;
-      if(!$(".gate")){const g=document.createElement("div");g.className="gate wrap";
-        g.innerHTML=`<div class="card"><h2>Sign in to Stockroom</h2><p class="hint">Inventory is shared between everyone on the team. Sign in with the Google account the owner approved.</p><button class="btn primary" id="gsign">Sign in with Google</button><p class="hint" id="gmsg"></p></div>`;
-        document.body.insertBefore(g,$("#toast"));
-        $("#gsign").onclick=async()=>{const p=new firebase.auth.GoogleAuthProvider();try{await auth.signInWithPopup(p)}catch(e){try{await auth.signInWithRedirect(p)}catch(x){$("#gmsg").textContent="Sign-in failed: "+(x.message||x.code)}}};}
+
+/* ---------------- accounts ----------------
+   People sign in with a username like "angel". Under the hood it's a Firebase email/password
+   account at angel@kairospurpose.app; nobody ever needs a real email address.
+   The first person to set up becomes the owner, and only the owner can add or remove people. */
+const DOMAIN="kairospurpose.app", SHOWN="kairospurpose";
+let ME=null, AUTH=null, CFG=null, members={};
+const toEmail=u=>u.includes("@")?u.split("@")[0].toLowerCase()+"@"+DOMAIN:u.toLowerCase()+"@"+DOMAIN;
+const handle=u=>u+"@"+SHOWN;
+const validUser=u=>/^[a-z0-9][a-z0-9._-]{1,29}$/.test(u);
+function authError(e){const c=e&&e.code||"";
+  if(/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c))return "Wrong username or password.";
+  if(/email-already-in-use/.test(c))return "That username is taken. Try another, like adding a number.";
+  if(/weak-password/.test(c))return "Password needs at least 6 characters.";
+  if(/too-many-requests/.test(c))return "Too many tries. Wait a minute and try again.";
+  if(/network/.test(c))return "No internet connection.";
+  if(/requires-recent-login/.test(c))return "Sign out and back in, then try again.";
+  if(/operation-not-allowed/.test(c))return "Username sign-in isn't turned on in Firebase yet (Authentication → Sign-in method → Email/Password).";
+  return (e&&e.message)||"Something went wrong.";}
+function gateScreen(html){
+  $("main").hidden=true;$("nav").hidden=true;$("#acct").hidden=true;
+  let g=$(".gate");if(!g){g=document.createElement("div");g.className="gate wrap";document.body.insertBefore(g,$("#toast"))}
+  g.innerHTML=`<div class="card">${html}</div>`;return g;
+}
+function closeGate(){const g=$(".gate");if(g)g.remove();$("main").hidden=false;$("nav").hidden=false;$("#acct").hidden=false}
+function accountGate(auth,store){
+  return new Promise(resolve=>{
+    let ownerExists=true;
+    store.doc("meta/owner").get().then(d=>{ownerExists=d.exists;if(!auth.currentUser)showSignIn()}).catch(()=>{});
+    const showSignIn=(msg)=>{
+      const g=gateScreen(`<h2>Sign in</h2><p class="hint">Use the username and password the owner gave you.</p>
+        <form id="gf" class="form" novalidate>
+          <label>Username<div class="row-flex" style="flex-wrap:nowrap"><input id="gu" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="angel"><span class="hint" style="text-transform:none;letter-spacing:0">@${SHOWN}</span></div></label>
+          <label>Password<input id="gp" type="password" autocomplete="current-password"></label>
+          <div style="grid-column:span 6"><button class="btn primary" style="width:100%">Sign in</button></div>
+        </form><p class="hint" id="gmsg" style="color:var(--danger)">${esc(msg||"")}</p>
+        ${ownerExists?"":`<div class="confirm"><span>Setting up Kairos Purpose for the first time?</span><button class="btn sm" id="gsetup">Create owner account</button></div>`}`);
+      g.querySelector("#gf").onsubmit=async e=>{e.preventDefault();const u=$("#gu").value.trim().toLowerCase().replace(/@.*/,"");
+        if(!u||!$("#gp").value){$("#gmsg").textContent="Enter your username and password.";return}
+        $("#gmsg").textContent="Signing in…";try{await auth.signInWithEmailAndPassword(toEmail(u),$("#gp").value)}catch(x){$("#gmsg").textContent=authError(x)}};
+      const su=g.querySelector("#gsetup");if(su)su.onclick=showSetup;
+      setTimeout(()=>{const f=$("#gu");if(f)f.focus()},30);
+    };
+    const showSetup=()=>{
+      const g=gateScreen(`<h2>Create the owner account</h2><p class="hint">This is the business owner's login. Only the owner can add employees. Do this once.</p>
+        <form id="sf" class="form" novalidate>
+          <label>Owner username<div class="row-flex" style="flex-wrap:nowrap"><input id="su" autocapitalize="none" spellcheck="false" placeholder="owner"><span class="hint" style="text-transform:none;letter-spacing:0">@${SHOWN}</span></div></label>
+          <label class="s3">Password<input id="sp" type="password" autocomplete="new-password"></label>
+          <label class="s3">Repeat password<input id="sp2" type="password" autocomplete="new-password"></label>
+          <div style="grid-column:span 6" class="row-flex"><button class="btn primary">Create owner account</button><button type="button" class="btn ghost" id="sback">Back</button></div>
+        </form><p class="hint" id="smsg" style="color:var(--danger)"></p>`);
+      $("#sback").onclick=()=>showSignIn();
+      $("#sf").onsubmit=async e=>{e.preventDefault();const u=$("#su").value.trim().toLowerCase();
+        if(!validUser(u)){$("#smsg").textContent="Usernames use 2–30 lowercase letters, numbers, dots, dashes or underscores.";return}
+        if($("#sp").value.length<6){$("#smsg").textContent="Password needs at least 6 characters.";return}
+        if($("#sp").value!==$("#sp2").value){$("#smsg").textContent="The passwords don't match.";return}
+        $("#smsg").textContent="Creating account…";
+        let cred;try{cred=await auth.createUserWithEmailAndPassword(toEmail(u),$("#sp").value)}catch(x){$("#smsg").textContent=authError(x);return}
+        try{await store.doc("meta/owner").set({uid:cred.user.uid,at:Date.now()});
+            await store.collection("members").doc(cred.user.uid).set({username:u,role:"owner",active:true,at:Date.now()});
+            location.reload();}
+        catch(x){try{await cred.user.delete()}catch(y){}showSignIn("An owner account already exists. Sign in instead.")}};
+    };
+    const showInactive=(u)=>{
+      const g=gateScreen(`<h2>Account not active</h2><p class="hint">You're signed in as ${esc(u.email.split("@")[0])}, but the owner hasn't given this account access, or it was removed. Ask the owner to reactivate it on the Team screen.</p><button class="btn" id="gout">Sign out</button>`);
+      g.querySelector("#gout").onclick=async()=>{await auth.signOut();location.reload()};
+    };
+    auth.onAuthStateChanged(async u=>{
+      if(!u){showSignIn();return}
+      try{const m=await store.collection("members").doc(u.uid).get();
+        if(m.exists&&m.data().active!==false){closeGate();resolve({uid:u.uid,...m.data()})}
+        else showInactive(u);
+      }catch(x){showInactive(u)}
     });
   });
 }
+
 (async()=>{
   await null; // let the rest of the script finish setting up before the first render
-  const cfg=window.STOCKROOM_FIREBASE;
-  if(cfg&&cfg.apiKey){
+  CFG=window.KAIROS_FIREBASE||window.STOCKROOM_FIREBASE;
+  if(CFG&&CFG.apiKey){
     try{
       const v="10.12.2",base="https://www.gstatic.com/firebasejs/"+v+"/";
       await loadScript(base+"firebase-app-compat.js");
       await Promise.all([loadScript(base+"firebase-auth-compat.js"),loadScript(base+"firebase-firestore-compat.js")]);
-      firebase.initializeApp(cfg);
-      const user=await signInGate(firebase.auth());
-      db=firebase.firestore();
-      try{await db.enablePersistence({synchronizeTabs:true})}catch(e){}
-      mode="shared";S.items={};S.bins={};S.stock={};S.log=[];
+      firebase.initializeApp(CFG);
+      AUTH=firebase.auth();
+      const store=firebase.firestore();
+      try{await store.enablePersistence({synchronizeTabs:true})}catch(e){}
+      ME=await accountGate(AUTH,store);
+      db=store;mode="shared";S.items={};S.bins={};S.stock={};S.log=[];
+      renderAccountChip();
       const pending=new Set(["items","bins","stock"]);
-      const sub=c=>db.collection(c).onSnapshot(snap=>{S[c]={};snap.docs.forEach(d=>S[c][d.id]=d.data());pending.delete(c);if(!pending.size)loaded=true;renderAll()},e=>toast(e.code==="permission-denied"?"This account isn't allowed in. Ask the owner to add "+(user.email||"you")+".":"Couldn't load inventory. Check your connection.","bad"));
+      const sub=c=>db.collection(c).onSnapshot(snap=>{S[c]={};snap.docs.forEach(d=>S[c][d.id]=d.data());pending.delete(c);if(!pending.size)loaded=true;renderAll()},e=>toast(e.code==="permission-denied"?"This account doesn't have access anymore. Ask the owner.":"Couldn't load inventory. Check your connection.","bad"));
       ["items","bins","stock"].forEach(sub);
       db.collection("log").orderBy("at","desc").limit(40).onSnapshot(snap=>{S.log=snap.docs.map(d=>d.data());if(current==="find")renderFind(true)},()=>{});
-    }catch(e){console.error(e);toast("Couldn't connect to the shared database. Using this device only.","bad");db=null;loaded=true}
+      db.collection("members").onSnapshot(snap=>{members={};snap.docs.forEach(d=>members[d.id]=d.data());if(current==="account")renderAccount()},()=>{});
+    }catch(e){console.error(e);toast("Couldn't connect to your accounts. Using this device only.","bad");db=null;loaded=true;closeGate()}
   }else loaded=true;
-  renderAll();openHash();
+  renderAccountChip();renderAll();openHash();
 })();
 if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
+
+/* ---------------- automatic updates ----------------
+   Every push to GitHub that changes version.json reaches open copies of the app within a few minutes.
+   It updates on its own when the app is reopened or idle, and never in the middle of a pick, a scan or a form. */
+let BUILD=null,updateReady=false;
+async function checkUpdate(){
+  try{const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)return;const v=String((await r.json()).version);
+    if(BUILD===null){BUILD=v;return}
+    if(v!==BUILD&&!updateReady){updateReady=true;$("#update").hidden=false;if(safeToReload()&&document.hidden)applyUpdate()}}catch(e){}
+}
+function safeToReload(){return $("#scanner").hidden&&!(pick&&pick.tasks)&&current!=="edit"&&current!=="account"&&!(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)&&document.activeElement.value)}
+async function applyUpdate(){
+  try{const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();if(reg)await reg.update()}catch(e){}
+  location.reload();
+}
+$("#updNow").onclick=applyUpdate;
+checkUpdate();setInterval(checkUpdate,3*60*1000);
+document.addEventListener("visibilitychange",()=>{if(document.hidden)return;if(updateReady&&safeToReload())applyUpdate();else checkUpdate()});
+
+/* ---------------- account screen & team ---------------- */
+function renderAccountChip(){
+  const b=$("#acct");if(!b)return;
+  b.textContent=ME?ME.username:"Device only";b.title=ME?handle(ME.username):"Not signed in";
+}
+$("#acct").onclick=()=>{renderAccount();show("account")};
+function renderAccount(){
+  const v=$("#v-account");
+  if(!ME){v.innerHTML=`<div class="card"><h3>This device only</h3><p class="hint">Accounts aren't connected yet, so inventory is saved on this device and nowhere else. To use the same inventory on every phone and computer with username logins, finish the Firebase setup in the README, then reload.</p></div>`;return}
+  const isOwner=ME.role==="owner";
+  const list=Object.entries(members).sort((a,b)=>(a[1].role==="owner"?-1:0)-(b[1].role==="owner"?-1:0)||a[1].username.localeCompare(b[1].username));
+  v.innerHTML=`<div class="card">
+    <div class="spread"><div><span class="badge">${esc(ME.role)}</span><h2 style="margin-top:6px">${esc(ME.username)}</h2><div class="sub">${esc(handle(ME.username))}</div></div><button class="btn ghost" id="aout">Sign out</button></div>
+    <details><summary style="cursor:pointer">Change password</summary>
+      <form id="pwf" class="form" novalidate style="margin-top:10px">
+        <label class="s2">Current<input id="pw0" type="password" autocomplete="current-password"></label>
+        <label class="s2">New<input id="pw1" type="password" autocomplete="new-password"></label>
+        <label class="s2">Repeat new<input id="pw2" type="password" autocomplete="new-password"></label>
+        <div style="grid-column:span 6"><button class="btn primary">Change password</button> <span class="hint" id="pwmsg"></span></div>
+      </form></details>
+  </div>
+  ${isOwner?`<div class="card"><h3>Team</h3><p class="hint">Everyone here sees the same inventory, live. Activity shows who stowed, picked or counted what.</p>
+    <ul class="list">${list.map(([uid,m])=>`<li class="row" style="grid-template-columns:1fr auto"><div class="meta"><div class="name">${esc(m.username)} ${m.active===false?'<span class="badge low">Removed</span>':`<span class="badge">${esc(m.role)}</span>`}</div><div class="sub">${esc(handle(m.username))}</div></div>
+      <div>${uid===ME.uid?"":m.active===false?`<button class="btn sm" data-react="${uid}">Reactivate</button>`:`<button class="btn danger sm" data-remove="${uid}">Remove</button>`}</div></li>`).join("")}</ul>
+    <h3 style="font-size:16px">Add a person</h3>
+    <form id="tf" class="form" novalidate>
+      <label class="s3">Username<input id="tu" autocapitalize="none" spellcheck="false" placeholder="maria"></label>
+      <label class="s3">Starting password<input id="tp" autocomplete="off" placeholder="at least 6 characters"></label>
+      <label class="s3">Role<select id="tr"><option value="staff">Staff</option><option value="manager">Manager</option></select></label>
+      <div class="s3" style="display:flex;align-items:flex-end"><button class="btn primary" style="width:100%">Add person</button></div>
+    </form><p class="hint" id="tmsg"></p></div>`:""}`;
+  $("#aout").onclick=async()=>{await AUTH.signOut();location.reload()};
+  $("#pwf").onsubmit=async e=>{e.preventDefault();const m=$("#pwmsg");
+    if($("#pw1").value.length<6){m.textContent="New password needs at least 6 characters.";return}
+    if($("#pw1").value!==$("#pw2").value){m.textContent="The new passwords don't match.";return}
+    try{const u=AUTH.currentUser;await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email,$("#pw0").value));await u.updatePassword($("#pw1").value);
+      m.textContent="";toast("Password changed","good");$("#pwf").reset()}catch(x){m.textContent=authError(x)}};
+  if(!isOwner)return;
+  v.querySelectorAll("[data-remove]").forEach(b=>b.onclick=async()=>{try{await db.collection("members").doc(b.dataset.remove).update({active:false});toast("Removed. They can't open inventory anymore.")}catch(x){toast("Couldn't remove.","bad")}});
+  v.querySelectorAll("[data-react]").forEach(b=>b.onclick=async()=>{try{await db.collection("members").doc(b.dataset.react).update({active:true});toast("Reactivated","good")}catch(x){toast("Couldn't reactivate.","bad")}});
+  $("#tf").onsubmit=async e=>{e.preventDefault();const u=$("#tu").value.trim().toLowerCase(),p=$("#tp").value,m=$("#tmsg");
+    if(!validUser(u)){m.textContent="Usernames use 2–30 lowercase letters, numbers, dots, dashes or underscores.";return}
+    if(p.length<6){m.textContent="Starting password needs at least 6 characters.";return}
+    m.textContent="Adding…";
+    // a second, throwaway Firebase connection creates the login so the owner stays signed in
+    const sec=firebase.apps.find(a=>a.name==="team")||firebase.initializeApp(CFG,"team");
+    try{const cred=await sec.auth().createUserWithEmailAndPassword(toEmail(u),p);
+      await db.collection("members").doc(cred.user.uid).set({username:u,role:$("#tr").value,active:true,at:Date.now()});
+      await sec.auth().signOut();
+      toast(`Added ${u}. They sign in as "${u}" with the password you set.`,"good");m.textContent="";$("#tf").reset();}
+    catch(x){m.textContent=authError(x)}};
+}
 
 /* ---------------- scanning ---------------- */
 // Accepts: QR links printed by this app (#bin-… / #item-…), product barcodes, bin codes, or pasted text from a scanner app.
@@ -259,7 +398,7 @@ function printLabels(ids,maker){
 function show(v){
   current=v;
   document.querySelectorAll(".view").forEach(s=>s.hidden=s.id!=="v-"+v);
-  const tab={item:"find",bin:"bins",edit:"find"}[v]||v;
+  const tab={item:"find",bin:"bins",edit:"find",account:""}[v]??v;
   document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.view===tab));
   window.scrollTo(0,0);
 }
@@ -281,7 +420,7 @@ function handleScanGeneral(raw){
 function renderAll(){
   const ni=Object.keys(S.items).length,nb=Object.keys(S.bins).length;
   $("#count").textContent=loaded?`${ni} item${ni===1?"":"s"} · ${nb} bin${nb===1?"":"s"}${mode==="local"?" · this device only":""}`:"Loading inventory…";
-  ({find:()=>renderFind(true),stow:()=>renderStow(true),pick:()=>renderPick(true),bins:()=>renderBins(null,true),labels:renderLabels,item:()=>S.items[openItem.id]?openItem(openItem.id,true):renderFind(),bin:()=>S.bins[openBin.id]?openBin(openBin.id,true):(renderBins(),show("bins")),edit:()=>{}})[current]();
+  ({find:()=>renderFind(true),stow:()=>renderStow(true),pick:()=>renderPick(true),bins:()=>renderBins(null,true),labels:renderLabels,item:()=>S.items[openItem.id]?openItem(openItem.id,true):renderFind(),bin:()=>S.bins[openBin.id]?openBin(openBin.id,true):(renderBins(),show("bins")),edit:()=>{},account:()=>{}})[current]();
 }
 
 /* ---------------- FIND ---------------- */
@@ -312,7 +451,7 @@ function renderFind(refresh){
     :`<li class="empty">${Object.keys(S.items).length?"Nothing matches. Try fewer words.":"No items yet. Go to <b>Stow</b> and scan your first product into a bin."}</li>`;
   $("#fres").querySelectorAll(".row").forEach(r=>r.onclick=()=>openItem(r.dataset.id));
   const lg=S.log.slice(0,8);
-  $("#flog").innerHTML=lg.length?`<h3 style="margin:8px 0">Recent activity</h3><ul class="list log">${lg.map(e=>`<li class="row"><span class="verb ${e.type}">${esc(e.type)}</span><div class="meta"><div class="name">${esc((S.items[e.itemId]||{}).name||e.itemName||"Item")}</div><div class="sub">${esc(e.binId||"")} · ${new Date(e.at).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div></div><div class="qty"><b>${e.type==="pick"?"−":e.type==="stow"?"+":"="}${esc(e.qty)}</b></div></li>`).join("")}</ul>`:"";
+  $("#flog").innerHTML=lg.length?`<h3 style="margin:8px 0">Recent activity</h3><ul class="list log">${lg.map(e=>`<li class="row"><span class="verb ${e.type}">${esc(e.type)}</span><div class="meta"><div class="name">${esc((S.items[e.itemId]||{}).name||e.itemName||"Item")}</div><div class="sub">${esc(e.binId||"")}${e.by?" · "+esc(e.by):""} · ${new Date(e.at).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div></div><div class="qty"><b>${e.type==="pick"?"−":e.type==="stow"?"+":"="}${esc(e.qty)}</b></div></li>`).join("")}</ul>`:"";
 }
 
 /* ---------------- ITEM ---------------- */
@@ -578,7 +717,7 @@ function renderLabels(){
   ids.slice(0,60).forEach(id=>{const d=document.createElement("div");d.className="mini";d.appendChild(lblTab==="bins"?binLabel(id):itemLabel(id));g.appendChild(d)});
   $("#dl").disabled=$("#pr").disabled=!ids.length;
   $("#pr").onclick=()=>printLabels(ids,lblTab==="bins"?binLabel:itemLabel);
-  $("#dl").onclick=()=>saveSheet(ids.slice(0,150),lblTab==="bins"?binLabel:itemLabel,`stockroom-${lblTab}-labels.png`);
+  $("#dl").onclick=()=>saveSheet(ids.slice(0,150),lblTab==="bins"?binLabel:itemLabel,`kairos-${lblTab}-labels.png`);
 }
 
 renderFind();renderAll();

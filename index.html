@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Stockroom</title>
+<title>Kairos Purpose</title>
 <meta name="theme-color" content="#1d2320">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Stockroom">
+<meta name="apple-mobile-web-app-title" content="Kairos Purpose">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -150,7 +150,11 @@ dd{margin:2px 0 0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;ov
 .scanner .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.5);color:#fff}
 .scanner .btn.on{background:#f2c418;color:#1d2320;border-color:#f2c418}
 .scanner.hit .reticle{border-color:#6cc47a}
-.gate{max-width:420px;margin:12vh auto 0;text-align:center}
+.gate{max-width:440px;margin:8vh auto 0}
+.gate .card{gap:16px}
+.acct{margin-left:auto;font:600 13px var(--f-body);color:var(--ink);background:var(--sign);border:0;border-radius:999px;padding:5px 12px;cursor:pointer;max-width:45vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.update{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:25;display:flex;gap:12px;align-items:center;background:var(--accent);color:var(--accent-ink);padding:10px 12px 10px 16px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);width:max-content;max-width:calc(100% - 32px);font-weight:500}
+.update .btn{background:var(--accent-ink);color:var(--accent);border-color:var(--accent-ink);padding:6px 12px}
 #printArea{display:none}
 @media print{
   body>*:not(#printArea){display:none!important}
@@ -166,7 +170,7 @@ dd{margin:2px 0 0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;ov
 <body>
 <header>
   <div class="wrap">
-    <div class="brand"><h1><span>Stock</span>room</h1><small id="count">Loading inventory…</small></div>
+    <div class="brand"><h1><span>Kairos</span>Purpose</h1><small id="count">Loading inventory…</small><button class="acct" id="acct" type="button">Device only</button></div>
     <nav role="tablist">
       <button role="tab" data-view="find" id="t-find" aria-selected="true">Find</button>
       <button role="tab" data-view="stow" id="t-stow" aria-selected="false">Stow</button>
@@ -186,6 +190,7 @@ dd{margin:2px 0 0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;ov
   <section id="v-item" class="view" hidden></section>
   <section id="v-bin" class="view" hidden></section>
   <section id="v-edit" class="view" hidden></section>
+  <section id="v-account" class="view" hidden></section>
 </div></main>
 
 <input type="file" id="photo" accept="image/*" capture="environment" hidden>
@@ -203,6 +208,7 @@ dd{margin:2px 0 0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;ov
 </div>
 
 <div id="printArea"></div>
+<div class="update" id="update" hidden role="status"><span>A new version of Kairos Purpose is ready.</span><button class="btn" id="updNow" type="button">Update now</button></div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
