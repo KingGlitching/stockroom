@@ -29,10 +29,25 @@ service cloud.firestore {
     }
 
     // The team list. Members can see it; only the owner adds or removes people.
-    // The owner's own entry can be written right after claiming ownership.
+    // Anyone can change their own username (and record their own login email), nothing else.
     match /members/{uid} {
       allow read: if isMember();
       allow write: if isOwner();
+      allow update: if isMember() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["username", "email"])
+        && request.resource.data.get("email", "") == request.auth.token.email;
+    }
+
+    // Username → login lookup used on the sign-in screen. Anyone can look up one
+    // name (not list them). People manage their own entry; the owner manages all.
+    match /usernames/{name} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isOwner() || (isMember()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email);
+      allow delete: if isOwner() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow update: if false;
     }
 
     // Inventory: anyone active on the team.

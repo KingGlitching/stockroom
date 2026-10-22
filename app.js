@@ -50,7 +50,7 @@ async function del(coll,id){
   else{delete S[coll][id];localSave();renderAll();}
 }
 async function addLog(e){
-  e.at=Date.now();if(ME)e.by=ME.username;
+  e.at=Date.now();if(ME){e.by=ME.username;e.byUid=ME.uid}
   if(db){try{await db.collection("log").add(e)}catch(x){}}
   else{S.log.unshift(e);S.log=S.log.slice(0,60);localSave();}
 }
@@ -72,6 +72,14 @@ const DOMAIN="kairospurpose.app", SHOWN="kairospurpose";
 let ME=null, AUTH=null, CFG=null, members={};
 const toEmail=u=>u.includes("@")?u.split("@")[0].toLowerCase()+"@"+DOMAIN:u.toLowerCase()+"@"+DOMAIN;
 const handle=u=>u+"@"+SHOWN;
+// Logins are looked up by username in usernames/{name} → {uid,email}, so a name can change without touching the login.
+// Accounts made before this existed have no entry; their login is still name@kairospurpose.app.
+async function loginEmailFor(store,u){try{const d=await store.collection("usernames").doc(u).get();if(d.exists&&d.data().email)return d.data().email}catch(e){}return toEmail(u)}
+const newLoginEmail=u=>u+"."+Math.random().toString(36).slice(2,8)+"@"+DOMAIN;
+async function nameTaken(store,u,exceptUid){
+  if(Object.entries(members).some(([id,m])=>id!==exceptUid&&m.username===u))return true;
+  try{const d=await store.collection("usernames").doc(u).get();return d.exists&&d.data().uid!==exceptUid}catch(e){return false}
+}
 const validUser=u=>/^[a-z0-9][a-z0-9._-]{1,29}$/.test(u);
 function authError(e){const c=e&&e.code||"";
   if(/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c))return "Wrong username or password.";
@@ -102,7 +110,7 @@ function accountGate(auth,store){
         ${ownerExists?"":`<div class="confirm"><span>Setting up Kairos Purpose for the first time?</span><button class="btn sm" id="gsetup">Create owner account</button></div>`}`);
       g.querySelector("#gf").onsubmit=async e=>{e.preventDefault();const u=$("#gu").value.trim().toLowerCase().replace(/@.*/,"");
         if(!u||!$("#gp").value){$("#gmsg").textContent="Enter your username and password.";return}
-        $("#gmsg").textContent="Signing in…";try{await auth.signInWithEmailAndPassword(toEmail(u),$("#gp").value)}catch(x){$("#gmsg").textContent=authError(x)}};
+        $("#gmsg").textContent="Signing in…";try{await auth.signInWithEmailAndPassword(await loginEmailFor(store,u),$("#gp").value)}catch(x){$("#gmsg").textContent=authError(x)}};
       const su=g.querySelector("#gsetup");if(su)su.onclick=showSetup;
       setTimeout(()=>{const f=$("#gu");if(f)f.focus()},30);
     };
@@ -120,9 +128,10 @@ function accountGate(auth,store){
         if($("#sp").value.length<6){$("#smsg").textContent="Password needs at least 6 characters.";return}
         if($("#sp").value!==$("#sp2").value){$("#smsg").textContent="The passwords don't match.";return}
         $("#smsg").textContent="Creating account…";
-        let cred;try{cred=await auth.createUserWithEmailAndPassword(toEmail(u),$("#sp").value)}catch(x){$("#smsg").textContent=authError(x);return}
+        const email=newLoginEmail(u);let cred;try{cred=await auth.createUserWithEmailAndPassword(email,$("#sp").value)}catch(x){$("#smsg").textContent=authError(x);return}
         try{await store.doc("meta/owner").set({uid:cred.user.uid,at:Date.now()});
-            await store.collection("members").doc(cred.user.uid).set({username:u,role:"owner",active:true,at:Date.now()});
+            await store.collection("members").doc(cred.user.uid).set({username:u,email,role:"owner",active:true,at:Date.now()});
+            await store.collection("usernames").doc(u).set({uid:cred.user.uid,email});
             location.reload();}
         catch(x){try{await cred.user.delete()}catch(y){}showSignIn("An owner account already exists. Sign in instead.")}};
     };
@@ -155,11 +164,14 @@ function accountGate(auth,store){
       ME=await accountGate(AUTH,store);
       db=store;mode="shared";S.items={};S.bins={};S.stock={};S.log=[];
       renderAccountChip();
+      selfHeal(store);
       const pending=new Set(["items","bins","stock"]);
       const sub=c=>db.collection(c).onSnapshot(snap=>{S[c]={};snap.docs.forEach(d=>S[c][d.id]=d.data());pending.delete(c);if(!pending.size)loaded=true;renderAll()},e=>toast(e.code==="permission-denied"?"This account doesn't have access anymore. Ask the owner.":"Couldn't load inventory. Check your connection.","bad"));
       ["items","bins","stock"].forEach(sub);
       db.collection("log").orderBy("at","desc").limit(40).onSnapshot(snap=>{S.log=snap.docs.map(d=>d.data());if(current==="find")renderFind(true)},()=>{});
-      db.collection("members").onSnapshot(snap=>{members={};snap.docs.forEach(d=>members[d.id]=d.data());if(current==="account")renderAccount()},()=>{});
+      db.collection("members").onSnapshot(snap=>{members={};snap.docs.forEach(d=>members[d.id]=d.data());
+        if(members[ME.uid]&&members[ME.uid].username!==ME.username){ME.username=members[ME.uid].username;renderAccountChip()}
+        const ae=document.activeElement;if(current==="account"&&!(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)&&$("#v-account").contains(ae)))renderAccount();if(current==="find")renderFind(true)},()=>{});
     }catch(e){console.error(e);toast("Couldn't connect to your accounts. Using this device only.","bad");db=null;loaded=true;closeGate()}
   }else loaded=true;
   renderAccountChip();renderAll();openHash();
@@ -185,6 +197,31 @@ checkUpdate();setInterval(checkUpdate,3*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.hidden)return;if(updateReady&&safeToReload())applyUpdate();else checkUpdate()});
 
 /* ---------------- account screen & team ---------------- */
+// Older accounts get their username entry and login email recorded the first time they sign in after this update.
+async function selfHeal(store){
+  try{const email=AUTH.currentUser.email;
+    if(!ME.email){await store.collection("members").doc(ME.uid).update({email});ME.email=email}
+    const d=await store.collection("usernames").doc(ME.username).get();
+    if(!d.exists)await store.collection("usernames").doc(ME.username).set({uid:ME.uid,email});
+  }catch(e){console.warn("username entry not saved yet",e.code||e)}
+}
+async function renameUser(uid,newName){
+  const m=members[uid]||(uid===ME.uid?ME:null);if(!m)throw {message:"That person wasn't found."};
+  const oldName=m.username;newName=newName.trim().toLowerCase();
+  if(newName===oldName)return oldName;
+  if(!validUser(newName))throw {message:"Usernames use 2–30 lowercase letters, numbers, dots, dashes or underscores."};
+  if(await nameTaken(db,newName,uid))throw {message:`“${newName}” is already taken.`};
+  const email=m.email||(uid===ME.uid?AUTH.currentUser.email:toEmail(oldName));
+  const oldRef=db.collection("usernames").doc(oldName);const old=await oldRef.get();
+  const b=db.batch();
+  b.set(db.collection("usernames").doc(newName),{uid,email});
+  if(old.exists&&old.data().uid===uid)b.delete(oldRef);
+  b.update(db.collection("members").doc(uid),{username:newName,email});
+  try{await b.commit()}catch(e){throw {message:e.code==="permission-denied"?"The server isn't allowing name changes yet. The owner needs to publish the latest security rules.":(e.message||"Couldn't change the username.")}}
+  if(uid===ME.uid){ME.username=newName;ME.email=email;renderAccountChip()}
+  return newName;
+}
+
 function renderAccountChip(){
   const b=$("#acct");if(!b)return;
   b.textContent=ME?ME.username:"Device only";b.title=ME?handle(ME.username):"Not signed in";
@@ -197,6 +234,12 @@ function renderAccount(){
   const list=Object.entries(members).sort((a,b)=>(a[1].role==="owner"?-1:0)-(b[1].role==="owner"?-1:0)||a[1].username.localeCompare(b[1].username));
   v.innerHTML=`<div class="card">
     <div class="spread"><div><span class="badge">${esc(ME.role)}</span><h2 style="margin-top:6px">${esc(ME.username)}</h2><div class="sub">${esc(handle(ME.username))}</div></div><button class="btn ghost" id="aout">Sign out</button></div>
+    <details><summary style="cursor:pointer">Change username</summary>
+      <form id="unf" class="form" novalidate style="margin-top:10px">
+        <label class="s3">New username<div class="row-flex" style="flex-wrap:nowrap"><input id="un1" autocapitalize="none" spellcheck="false" value="${esc(ME.username)}"><span class="hint" style="text-transform:none;letter-spacing:0">@${SHOWN}</span></div></label>
+        <div class="s3" style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap"><button class="btn primary">Save username</button></div>
+        <p class="hint" id="unmsg" style="grid-column:span 6;margin:0">You'll sign in with the new name from now on. Your password stays the same.</p>
+      </form></details>
     <details><summary style="cursor:pointer">Change password</summary>
       <form id="pwf" class="form" novalidate style="margin-top:10px">
         <label class="s2">Current<input id="pw0" type="password" autocomplete="current-password"></label>
@@ -207,7 +250,7 @@ function renderAccount(){
   </div>
   ${isOwner?`<div class="card"><h3>Team</h3><p class="hint">Everyone here sees the same inventory, live. Activity shows who stowed, picked or counted what.</p>
     <ul class="list">${list.map(([uid,m])=>`<li class="row" style="grid-template-columns:1fr auto"><div class="meta"><div class="name">${esc(m.username)} ${m.active===false?'<span class="badge low">Removed</span>':`<span class="badge">${esc(m.role)}</span>`}</div><div class="sub">${esc(handle(m.username))}</div></div>
-      <div>${uid===ME.uid?"":m.active===false?`<button class="btn sm" data-react="${uid}">Reactivate</button>`:`<button class="btn danger sm" data-remove="${uid}">Remove</button>`}</div></li>`).join("")}</ul>
+      <div class="row-flex" style="justify-content:flex-end">${uid===ME.uid?"":`<button class="btn ghost sm" data-rename="${uid}">Rename</button>`}${uid===ME.uid?"":m.active===false?`<button class="btn sm" data-react="${uid}">Reactivate</button>`:`<button class="btn danger sm" data-remove="${uid}">Remove</button>`}</div></li>`).join("")}</ul>
     <h3 style="font-size:16px">Add a person</h3>
     <form id="tf" class="form" novalidate>
       <label class="s3">Username<input id="tu" autocapitalize="none" spellcheck="false" placeholder="maria"></label>
@@ -216,12 +259,23 @@ function renderAccount(){
       <div class="s3" style="display:flex;align-items:flex-end"><button class="btn primary" style="width:100%">Add person</button></div>
     </form><p class="hint" id="tmsg"></p></div>`:""}`;
   $("#aout").onclick=async()=>{await AUTH.signOut();location.reload()};
+  $("#unf").onsubmit=async e=>{e.preventDefault();const msg=$("#unmsg");msg.textContent="Saving…";
+    try{const n=await renameUser(ME.uid,$("#un1").value);toast(`You're now ${n}. Sign in with that name from now on.`,"good");renderAccount()}catch(x){msg.textContent=x.message}};
   $("#pwf").onsubmit=async e=>{e.preventDefault();const m=$("#pwmsg");
     if($("#pw1").value.length<6){m.textContent="New password needs at least 6 characters.";return}
     if($("#pw1").value!==$("#pw2").value){m.textContent="The new passwords don't match.";return}
     try{const u=AUTH.currentUser;await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email,$("#pw0").value));await u.updatePassword($("#pw1").value);
       m.textContent="";toast("Password changed","good");$("#pwf").reset()}catch(x){m.textContent=authError(x)}};
   if(!isOwner)return;
+  v.querySelectorAll("[data-rename]").forEach(b=>b.onclick=()=>{
+    const uid=b.dataset.rename,li=b.closest("li"),m=members[uid];if(li.querySelector(".renamef"))return;
+    const f=document.createElement("form");f.className="renamef row-flex";f.style.gridColumn="1 / -1";f.noValidate=true;
+    f.innerHTML=`<input id="rn-${esc(uid)}" value="${esc(m.username)}" autocapitalize="none" spellcheck="false" style="flex:1;min-width:140px" aria-label="New username"><button class="btn primary sm">Save</button><button type="button" class="btn ghost sm">Cancel</button><span class="hint" style="flex-basis:100%"></span>`;
+    li.appendChild(f);f.querySelector("input").select();
+    f.querySelector("button[type=button]").onclick=()=>f.remove();
+    f.onsubmit=async e=>{e.preventDefault();const h=f.querySelector(".hint");h.textContent="Saving…";
+      try{const n=await renameUser(uid,f.querySelector("input").value);toast(`Renamed to ${n}. Tell them to sign in with “${n}”.`,"good")}catch(x){h.textContent=x.message}};
+  });
   v.querySelectorAll("[data-remove]").forEach(b=>b.onclick=async()=>{try{await db.collection("members").doc(b.dataset.remove).update({active:false});toast("Removed. They can't open inventory anymore.")}catch(x){toast("Couldn't remove.","bad")}});
   v.querySelectorAll("[data-react]").forEach(b=>b.onclick=async()=>{try{await db.collection("members").doc(b.dataset.react).update({active:true});toast("Reactivated","good")}catch(x){toast("Couldn't reactivate.","bad")}});
   $("#tf").onsubmit=async e=>{e.preventDefault();const u=$("#tu").value.trim().toLowerCase(),p=$("#tp").value,m=$("#tmsg");
@@ -230,8 +284,11 @@ function renderAccount(){
     m.textContent="Adding…";
     // a second, throwaway Firebase connection creates the login so the owner stays signed in
     const sec=firebase.apps.find(a=>a.name==="team")||firebase.initializeApp(CFG,"team");
-    try{const cred=await sec.auth().createUserWithEmailAndPassword(toEmail(u),p);
-      await db.collection("members").doc(cred.user.uid).set({username:u,role:$("#tr").value,active:true,at:Date.now()});
+    if(await nameTaken(db,u)){m.textContent=`“${u}” is already taken.`;return}
+    const email=newLoginEmail(u);
+    try{const cred=await sec.auth().createUserWithEmailAndPassword(email,p);
+      await db.collection("members").doc(cred.user.uid).set({username:u,email,role:$("#tr").value,active:true,at:Date.now()});
+      await db.collection("usernames").doc(u).set({uid:cred.user.uid,email});
       await sec.auth().signOut();
       toast(`Added ${u}. They sign in as "${u}" with the password you set.`,"good");m.textContent="";$("#tf").reset();}
     catch(x){m.textContent=authError(x)}};
@@ -451,7 +508,7 @@ function renderFind(refresh){
     :`<li class="empty">${Object.keys(S.items).length?"Nothing matches. Try fewer words.":"No items yet. Go to <b>Stow</b> and scan your first product into a bin."}</li>`;
   $("#fres").querySelectorAll(".row").forEach(r=>r.onclick=()=>openItem(r.dataset.id));
   const lg=S.log.slice(0,8);
-  $("#flog").innerHTML=lg.length?`<h3 style="margin:8px 0">Recent activity</h3><ul class="list log">${lg.map(e=>`<li class="row"><span class="verb ${e.type}">${esc(e.type)}</span><div class="meta"><div class="name">${esc((S.items[e.itemId]||{}).name||e.itemName||"Item")}</div><div class="sub">${esc(e.binId||"")}${e.by?" · "+esc(e.by):""} · ${new Date(e.at).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div></div><div class="qty"><b>${e.type==="pick"?"−":e.type==="stow"?"+":"="}${esc(e.qty)}</b></div></li>`).join("")}</ul>`:"";
+  $("#flog").innerHTML=lg.length?`<h3 style="margin:8px 0">Recent activity</h3><ul class="list log">${lg.map(e=>`<li class="row"><span class="verb ${e.type}">${esc(e.type)}</span><div class="meta"><div class="name">${esc((S.items[e.itemId]||{}).name||e.itemName||"Item")}</div><div class="sub">${esc(e.binId||"")}${e.by?" · "+esc((members[e.byUid]||{}).username||e.by):""} · ${new Date(e.at).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div></div><div class="qty"><b>${e.type==="pick"?"−":e.type==="stow"?"+":"="}${esc(e.qty)}</b></div></li>`).join("")}</ul>`:"";
 }
 
 /* ---------------- ITEM ---------------- */
