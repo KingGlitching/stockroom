@@ -50,10 +50,10 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // Inventory: anyone active on the team.
+    // Inventory and item photos: anyone active on the team.
     match /{collection}/{docId} {
       allow read, write: if isMember()
-        && collection in ["items", "bins", "stock", "log"];
+        && collection in ["items", "bins", "stock", "log", "photos"];
     }
   }
 }

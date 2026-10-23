@@ -163,6 +163,30 @@ dd{margin:2px 0 0;font-family:var(--f-mono);font-variant-numeric:tabular-nums;ov
   #printArea img{width:100%;break-inside:avoid;display:block}
   @page{margin:0.4in}
 }
+/* photos */
+.with-thumb{display:flex;gap:10px;align-items:center}
+.thumb{width:44px;height:44px;flex:none;border-radius:6px;object-fit:cover;background:var(--soft)}
+.flabel{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.gallery{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
+.gallery:empty{display:none}
+.gimg{position:relative;flex:none;width:112px;height:112px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--soft);padding:0;cursor:pointer}
+.gimg img{width:100%;height:100%;object-fit:cover;display:block}
+.gimg.editable{cursor:default}
+.gx{position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;font-size:18px;line-height:1;cursor:pointer}
+.gfirst{position:absolute;left:4px;bottom:4px;border:0;border-radius:4px;background:rgba(0,0,0,.65);color:#fff;font:600 11px var(--f-body);padding:3px 6px;cursor:pointer}
+.gadd{flex:none;width:112px;height:112px;border-radius:8px;border:2px dashed var(--line);background:transparent;color:var(--muted);font:600 13px var(--f-body);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.gadd span{font-size:30px;line-height:1;font-weight:400}
+.gadd:hover{border-color:var(--muted);color:var(--ink)}
+.pickitem{display:flex;gap:14px;align-items:center}
+.pickphoto{flex:none;width:96px;height:96px;border-radius:8px;overflow:hidden;border:1px solid var(--line);padding:0;background:var(--soft);cursor:pointer}
+.pickphoto img{width:100%;height:100%;object-fit:cover;display:block}
+.viewer{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:calc(56px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
+.viewer>img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px}
+.vbar{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;gap:10px;color:#fff;padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));font-weight:500}
+.vbar .vt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vbar .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.5);color:#fff}
+.vnav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:64px;border:0;border-radius:6px;background:rgba(255,255,255,.12);color:#fff;font-size:34px;cursor:pointer}
+.vprev{left:max(8px,env(safe-area-inset-left,0px))}.vnext{right:max(8px,env(safe-area-inset-right,0px))}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 

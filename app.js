@@ -503,12 +503,91 @@ function renderFind(refresh){
   }).sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||""));
   $("#fres").innerHTML=!loaded?`<li class="empty">Loading…</li>`:list.length?list.map(([id,i])=>{const st=stockOf(id);return `<li><button class="row" data-id="${id}">
       ${plate(st[0]&&st[0].bin)}
-      <div class="meta"><div class="name">${esc(i.name)}</div><div class="sub">${esc(i.code||"no barcode")}${st.length>1?` · in ${st.length} bins`:""}</div></div>
+      <div class="meta with-thumb">${thumbImg(i)}<div style="min-width:0"><div class="name">${esc(i.name)}</div><div class="sub">${esc(i.code||"no barcode")}${st.length>1?` · in ${st.length} bins`:""}</div></div></div>
       <div class="qty ${isLow(id)?"low":""}"><b>${total(id)}</b>on hand</div></button></li>`}).join("")
     :`<li class="empty">${Object.keys(S.items).length?"Nothing matches. Try fewer words.":"No items yet. Go to <b>Stow</b> and scan your first product into a bin."}</li>`;
   $("#fres").querySelectorAll(".row").forEach(r=>r.onclick=()=>openItem(r.dataset.id));
   const lg=S.log.slice(0,8);
   $("#flog").innerHTML=lg.length?`<h3 style="margin:8px 0">Recent activity</h3><ul class="list log">${lg.map(e=>`<li class="row"><span class="verb ${e.type}">${esc(e.type)}</span><div class="meta"><div class="name">${esc((S.items[e.itemId]||{}).name||e.itemName||"Item")}</div><div class="sub">${esc(e.binId||"")}${e.by?" · "+esc((members[e.byUid]||{}).username||e.by):""} · ${new Date(e.at).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div></div><div class="qty"><b>${e.type==="pick"?"−":e.type==="stow"?"+":"="}${esc(e.qty)}</b></div></li>`).join("")}</ul>`:"";
+}
+
+/* ---------------- PHOTOS ----------------
+   Photos are shrunk on the phone, then stored in the same database as the inventory:
+   photos/{itemId} holds up to 4 pictures, and the item itself keeps a tiny thumbnail
+   so lists can show it without downloading the full pictures. */
+const PHOTO_MAX=4, PHOTO_CHARS=190000, THUMB_CHARS=9000;
+const photoCache={};
+function loadImg(src){return new Promise((ok,no)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=()=>no(new Error("unreadable"));im.src=src})}
+async function shrink(src,maxDim,limit){
+  const url=src instanceof Blob?URL.createObjectURL(src):src;
+  try{const im=await loadImg(url);let dim=maxDim;
+    for(let round=0;round<6;round++){
+      const sc=Math.min(1,dim/Math.max(im.naturalWidth,im.naturalHeight)),w=Math.max(1,Math.round(im.naturalWidth*sc)),h=Math.max(1,Math.round(im.naturalHeight*sc));
+      const c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,w,h);x.drawImage(im,0,0,w,h);
+      for(const q of [0.82,0.72,0.62,0.52]){const d=c.toDataURL("image/jpeg",q);if(d.length<=limit)return d}
+      dim=Math.round(dim*0.78);
+    }
+    throw new Error("too big");
+  }finally{if(src instanceof Blob)URL.revokeObjectURL(url)}
+}
+const makePhoto=f=>shrink(f,1280,PHOTO_CHARS), makeThumb=d=>shrink(d,180,THUMB_CHARS);
+async function getPhotos(itemId){
+  // the cache is only trusted while the item's thumbnail matches, so photos added on another device are picked up
+  const key=(S.items[itemId]||{}).thumb||"";
+  if(photoCache[itemId]&&photoCache[itemId].key===key)return photoCache[itemId].imgs;
+  let imgs=[];
+  if(db){try{const d=await db.collection("photos").doc(itemId).get();imgs=(d.exists&&d.data().images)||[]}catch(e){imgs=[]}}
+  else{try{imgs=JSON.parse(localStorage.getItem("kairos-photos-"+itemId))||[]}catch(e){imgs=[]}}
+  photoCache[itemId]={key,imgs};return imgs;
+}
+async function savePhotos(itemId,imgs){
+  if(db){
+    try{if(imgs.length)await db.collection("photos").doc(itemId).set({images:imgs,at:Date.now(),by:ME?ME.uid:""});else await db.collection("photos").doc(itemId).delete()}
+    catch(e){throw new Error(e.code==="permission-denied"?"Photos aren't turned on in the database yet. The owner needs to publish the latest security rules.":"Couldn't upload the photos. Check your connection.")}
+  }else{
+    try{if(imgs.length)localStorage.setItem("kairos-photos-"+itemId,JSON.stringify(imgs));else localStorage.removeItem("kairos-photos-"+itemId)}
+    catch(e){throw new Error("This device is out of photo space. Turn on accounts to store photos online.")}
+  }
+  delete photoCache[itemId];
+}
+// Saves new photos for an item and keeps its thumbnail and photo count in step.
+async function setItemPhotos(itemId,imgs){
+  await savePhotos(itemId,imgs);
+  const it=S.items[itemId];if(!it)return;
+  const thumb=imgs.length?await makeThumb(imgs[0]):"";
+  const d={...it,thumb,photos:imgs.length};await put("items",itemId,d);if(db)S.items[itemId]=d;
+  photoCache[itemId]={key:thumb,imgs};
+}
+// Opens the camera (camera=true) or the photo library, and resolves with the chosen files.
+function pickImages(camera){
+  return new Promise(res=>{
+    const inp=document.createElement("input");inp.type="file";inp.accept="image/*";
+    if(camera)inp.setAttribute("capture","environment");else inp.multiple=true;
+    inp.style.display="none";document.body.appendChild(inp);
+    inp.onchange=()=>{const f=[...inp.files];inp.remove();res(f)};
+    inp.click();
+  });
+}
+async function filesToPhotos(files,room){
+  const out=[];
+  for(const f of files.slice(0,room)){try{out.push(await makePhoto(f))}catch(e){toast("One picture couldn't be read. Try another.","bad")}}
+  if(files.length>room)toast(`Only ${PHOTO_MAX} photos per item. Extra ones were skipped.`);
+  return out;
+}
+function thumbImg(i,cls){return i&&i.thumb?`<img class="${cls||"thumb"}" src="${esc(i.thumb)}" alt="">`:""}
+// Full-screen viewer
+function viewPhotos(imgs,start,title){
+  if(!imgs.length)return;let k=start||0;
+  const o=document.createElement("div");o.className="viewer";o.setAttribute("role","dialog");o.setAttribute("aria-label","Photo");
+  o.innerHTML=`<img alt=""><div class="vbar"><span class="vt"></span><button class="btn" data-x>Close</button></div>${imgs.length>1?`<button class="vnav vprev" aria-label="Previous photo">‹</button><button class="vnav vnext" aria-label="Next photo">›</button>`:""}`;
+  const draw=()=>{o.querySelector("img").src=imgs[k];o.querySelector(".vt").textContent=(title?title+" · ":"")+(imgs.length>1?`${k+1} of ${imgs.length}`:"")};
+  const close=()=>{o.remove();document.removeEventListener("keydown",kd)};
+  const go=d=>{k=(k+d+imgs.length)%imgs.length;draw()};
+  const kd=e=>{if(e.key==="Escape")close();if(e.key==="ArrowRight")go(1);if(e.key==="ArrowLeft")go(-1)};
+  o.querySelector("[data-x]").onclick=close;
+  if(imgs.length>1){o.querySelector(".vprev").onclick=()=>go(-1);o.querySelector(".vnext").onclick=()=>go(1)}
+  let sx=null;o.addEventListener("touchstart",e=>sx=e.touches[0].clientX,{passive:true});o.addEventListener("touchend",e=>{if(sx==null)return;const dx=e.changedTouches[0].clientX-sx;if(Math.abs(dx)>50&&imgs.length>1)go(dx<0?1:-1);sx=null});
+  document.addEventListener("keydown",kd);document.body.appendChild(o);draw();o.querySelector("[data-x]").focus();
 }
 
 /* ---------------- ITEM ---------------- */
@@ -517,6 +596,7 @@ function openItem(id,quiet){
   const st=stockOf(id),v=$("#v-item");
   v.innerHTML=`<div class="card">
     <div class="spread"><div style="display:flex;flex-direction:column;gap:6px;min-width:0"><div class="row-flex"><span class="badge">${i.kind==="made"?"Made in-house":"Purchased"}</span>${isLow(id)?'<span class="badge low">Reorder</span>':""}</div><h2>${esc(i.name)}</h2></div><button class="btn ghost" id="back">← Back</button></div>
+    <div class="gallery" id="gal">${i.thumb?`<button class="gimg" data-g="0" aria-label="View photo 1"><img src="${esc(i.thumb)}" alt=""></button>`:""}${(i.photos||0)<PHOTO_MAX?`<button class="gadd" id="addPhoto" aria-label="Add a photo"><span>+</span>${i.photos?"Add photo":"Add a photo"}</button>`:""}</div>
     <div style="display:flex;flex-direction:column;gap:6px"><span class="prompt">${st.length?"Go to":"Not on a shelf"}</span>${st.length?plate(st[0].bin,true):`<p class="hint">This item isn't in any bin. Use Stow to put it away.</p>`}</div>
     <dl class="facts">
       <div><dt>On hand</dt><dd>${total(id)}</dd></div><div><dt>Reorder at</dt><dd>${esc(i.min||"—")}</dd></div>
@@ -531,6 +611,23 @@ function openItem(id,quiet){
   const bc=document.createElement("canvas");if(i.code&&drawBarcode(bc,i.code))$("#codes").appendChild(bc);
   const q=qrCanvas(itemLink(id),150);$("#codes").appendChild(q);
   $("#back").onclick=()=>{renderFind();show("find")};
+  const gal=$("#gal");
+  const drawGallery=imgs=>{if(openItem.id!==id||!gal.isConnected)return;
+    gal.innerHTML=imgs.map((p,k)=>`<button class="gimg" data-g="${k}" aria-label="View photo ${k+1}"><img src="${esc(p)}" alt=""></button>`).join("")+(imgs.length<PHOTO_MAX?`<button class="gadd" id="addPhoto" aria-label="Add a photo"><span>+</span>${imgs.length?"Add photo":"Add a photo"}</button>`:"");
+    gal.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>viewPhotos(imgs,+b.dataset.g,i.name));
+    wireAdd()};
+  const wireAdd=()=>{const a=$("#addPhoto");if(!a)return;a.onclick=()=>{
+    const m=document.createElement("div");m.className="confirm";m.innerHTML=`<button class="btn primary sm" data-c="1">Take photo</button><button class="btn sm" data-c="0">Choose from library</button><button class="btn ghost sm" data-c="x">Cancel</button>`;
+    const old=$("#photoChoice");if(old)old.remove();m.id="photoChoice";gal.after(m);
+    m.onclick=async e=>{const b=e.target.closest("[data-c]");if(!b)return;m.remove();if(b.dataset.c==="x")return;
+      const files=await pickImages(b.dataset.c==="1");if(!files.length)return;
+      toast("Saving photo…");const imgs=await getPhotos(id);
+      if((i.photos||0)>0&&!imgs.length){toast("Couldn't load the existing photos, so nothing was changed. Check your connection.","bad");return}
+      const add=await filesToPhotos(files,PHOTO_MAX-imgs.length);if(!add.length)return;
+      try{const next=[...imgs,...add];await setItemPhotos(id,next);toast(add.length>1?"Photos added":"Photo added","good");drawGallery(next)}catch(x){toast(x.message,"bad")}};
+  }};
+  wireAdd();
+  if(i.photos||i.thumb)getPhotos(id).then(imgs=>{if(imgs.length)drawGallery(imgs);else if(i.thumb){gal.querySelectorAll("[data-g]").forEach(b=>b.onclick=()=>viewPhotos([i.thumb],0,i.name))}});
   v.querySelectorAll("[data-bin]").forEach(b=>b.onclick=()=>openBin(b.dataset.bin));
   v.querySelectorAll("[data-adj]").forEach(b=>b.onclick=async()=>{const d=+b.dataset.adj,bi=b.dataset.b,n=Math.max(0,qtyAt(id,bi)+d);try{await setStock(id,bi,n);addLog({type:"adjust",itemId:id,binId:bi,qty:n})}catch(e){toast("Couldn't save. You may not have edit access.","bad")};if(!db)openItem(id,true)});
   $("#stowThis").onclick=()=>{stow.item=id;renderStow();show("stow")};
@@ -539,7 +636,7 @@ function openItem(id,quiet){
   $("#lbl").onclick=()=>saveSheet([id],itemLabel,`item-${i.code||id}.png`);
   $("#delI").onclick=()=>{$("#cbox").innerHTML=`<div class="confirm"><span>Delete “${esc(i.name)}” and its stock records?</span><button class="btn danger" id="y">Delete</button><button class="btn ghost" id="n">Keep</button></div>`;
     $("#n").onclick=()=>$("#cbox").innerHTML="";
-    $("#y").onclick=async()=>{try{for(const s of Object.values(S.stock).filter(s=>s.itemId===id))await del("stock",id+"__"+s.binId);await del("items",id);toast("Item deleted");renderFind();show("find")}catch(e){toast("Couldn't delete. You may not have edit access.","bad")}}};
+    $("#y").onclick=async()=>{try{for(const s of Object.values(S.stock).filter(s=>s.itemId===id))await del("stock",id+"__"+s.binId);await del("items",id);if(i.photos)try{await savePhotos(id,[])}catch(e){};toast("Item deleted");renderFind();show("find")}catch(e){toast("Couldn't delete. You may not have edit access.","bad")}}};
   if(!quiet)show("item");
 }
 
@@ -559,10 +656,26 @@ function editItem(id,preset,after){
       <label class="s2">Category<input id="e-cat" value="${esc(i.cat)}" list="catlist" placeholder="Hardware"></label>
       <label>Supplier / maker<input id="e-sup" value="${esc(i.sup)}" placeholder="Fastenal"></label>
       <label>Notes<textarea id="e-notes">${esc(i.notes)}</textarea></label>
+      <div style="grid-column:span 6;display:flex;flex-direction:column;gap:8px">
+        <span class="flabel">Photos <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">· up to ${PHOTO_MAX}. The first one shows in search.</span></span>
+        <div class="gallery" id="e-pics"></div>
+        <div class="row-flex"><button type="button" class="btn sm" id="e-shoot">Take photo</button><button type="button" class="btn ghost sm" id="e-lib">Choose from library</button></div>
+      </div>
     </div>
     <datalist id="catlist">${[...new Set(Object.values(S.items).map(x=>x.cat).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
     <div class="row-flex"><button class="btn primary" type="submit">${id?"Save changes":after?"Save and continue":"Save item"}</button></div>
     <p class="hint" id="emsg"></p></form>`;
+  let pics=[],picsChanged=false,picsLoaded=!(id&&(i.photos||i.thumb));
+  const drawPics=()=>{const g=$("#e-pics");if(!g)return;
+    g.innerHTML=pics.length?pics.map((p,k)=>`<div class="gimg editable"><img src="${esc(p)}" alt="Photo ${k+1}"><button type="button" class="gx" data-rm="${k}" aria-label="Remove photo ${k+1}">×</button>${k?`<button type="button" class="gfirst" data-first="${k}">Make main</button>`:""}</div>`).join(""):(picsLoaded?`<span class="hint">No photos yet.</span>`:`<span class="hint">Loading photos…</span>`);
+    g.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{pics.splice(+b.dataset.rm,1);picsChanged=true;drawPics()});
+    g.querySelectorAll("[data-first]").forEach(b=>b.onclick=()=>{const [p]=pics.splice(+b.dataset.first,1);pics.unshift(p);picsChanged=true;drawPics()});
+    $("#e-shoot").disabled=$("#e-lib").disabled=!picsLoaded||pics.length>=PHOTO_MAX;};
+  drawPics();
+  if(!picsLoaded)getPhotos(id).then(p=>{if(!picsChanged)pics=[...p];picsLoaded=true;drawPics()});
+  const addPics=async cam=>{const files=await pickImages(cam);if(!files.length)return;$("#emsg").textContent="Preparing photo…";
+    const add=await filesToPhotos(files,PHOTO_MAX-pics.length);$("#emsg").textContent="";if(add.length){pics.push(...add);picsChanged=true;drawPics()}};
+  $("#e-shoot").onclick=()=>addPics(true);$("#e-lib").onclick=()=>addPics(false);
   const setK=k=>{kind=k;v.querySelectorAll("#e-kind button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===k))};setK(kind);
   $("#e-kind").onclick=e=>{const b=e.target.closest("button");if(b)setK(b.dataset.k)};
   $("#e-gen").onclick=()=>$("#e-code").value=newCode();
@@ -577,7 +690,14 @@ function editItem(id,preset,after){
     const dup=Object.entries(S.items).find(([k,x])=>sameCode(x.code,d.code)&&k!==id);
     if(dup){$("#emsg").textContent=`Barcode ${d.code} already belongs to “${dup[1].name}”.`;return}
     const nid=id||newId("i");
-    try{await put("items",nid,d);if(db)S.items[nid]=d;toast(id?"Changes saved":"Item added","good");if(after)after(nid);else openItem(nid)}
+    d.thumb=(i.thumb)||"";d.photos=i.photos||0;
+    let photoErr="";
+    if(picsChanged&&!picsLoaded){$("#emsg").textContent="Wait for the photos to finish loading.";return}
+    if(picsChanged){$("#emsg").textContent=pics.length?"Uploading photos…":"Saving…";
+      try{await savePhotos(nid,pics);d.thumb=pics.length?await makeThumb(pics[0]):"";d.photos=pics.length}catch(x){photoErr=x.message}}
+    try{await put("items",nid,d);if(db)S.items[nid]=d;if(picsChanged&&!photoErr)photoCache[nid]={key:d.thumb,imgs:[...pics]};
+      if(photoErr)toast((id?"Changes saved":"Item added")+", but the photos weren't. "+photoErr,"bad");else toast(id?"Changes saved":"Item added","good");
+      if(after)after(nid);else openItem(nid)}
     catch(x){$("#emsg").textContent="Couldn't save. You may not have edit access, or you're offline."}
   });
   show("edit");setTimeout(()=>$(id||preset&&preset.code?"#e-name":"#e-name").focus(),50);
@@ -688,13 +808,14 @@ function renderPicking(){
   <div class="card task">
     <div class="spread"><span class="prompt">Stop ${pick.i+1} of ${T.length}</span><button class="btn ghost sm" id="quit">Exit</button></div>
     ${plate(b,true)}
-    <div><div class="prompt" style="color:var(--ink)">Pick ${t.qty}</div><h2>${esc(it.name)}</h2><div class="sub">${esc(it.code)} · bin holds ${qtyAt(t.itemId,t.binId)}</div></div>
+    <div class="pickitem">${it.thumb?`<button class="pickphoto" id="pkphoto" aria-label="View photo of ${esc(it.name)}"><img src="${esc(it.thumb)}" alt=""></button>`:""}<div style="min-width:0"><div class="prompt" style="color:var(--ink)">Pick ${t.qty}</div><h2>${esc(it.name)}</h2><div class="sub">${esc(it.code)} · bin holds ${qtyAt(t.itemId,t.binId)}</div></div></div>
     <div class="prompt ${pick.step>0?"done":""}"><span class="n">${pick.step>0?"✓":"1"}</span>Scan the bin</div>
     <div class="prompt ${pick.step>1?"done":""}"><span class="n">${pick.step>1?"✓":"2"}</span>Scan the item</div>
     ${pick.step<2?`<div id="pk"></div>`:""}
     <div class="row-flex"><button class="btn primary" id="confirm" style="flex:1">${pick.step<2?"Confirm without scanning":"Confirm pick"}</button><button class="btn danger" id="short">Bin is short</button></div>
   </div>
   <h3>Route</h3>${routeHtml}`;
+  if(it.thumb){const pp=$("#pkphoto");getPhotos(t.itemId).then(imgs=>{if(imgs.length&&pp.isConnected){pp.querySelector("img").src=imgs[0];pp.onclick=()=>viewPhotos(imgs,0,it.name)}});pp.onclick=()=>viewPhotos([it.thumb],0,it.name)}
   if(pick.step<2)scanField($("#pk"),"pkscan",pick.step===0?"Scan bin "+t.binId:"Scan item barcode",code=>{
     const r=resolve(code);
     if(pick.step===0){if(r.type==="bin"&&r.id===t.binId){pick.step=1;savePick();renderPicking();setTimeout(()=>{const f=$("#pkscan");if(f)f.focus()},30)}else toast("Wrong bin. Go to "+t.binId,"bad")}
